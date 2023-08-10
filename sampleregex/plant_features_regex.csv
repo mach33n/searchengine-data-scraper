@@ -1,6 +1,6 @@
 features, regex
 npk,_
-temp,_
-hum,_
-light,_
-moist,_
+optimal+temperature,_
+optimal+humidity,_
+optimal+lighting,_
+optimal+moisture,_
