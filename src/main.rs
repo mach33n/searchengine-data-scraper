@@ -1,7 +1,7 @@
 #![feature(once_cell)]
 extern crate argparse;
 
-use std::sync::{Arc, RwLock, OnceLock};
+use std::{sync::{Arc, RwLock, OnceLock}, fs::OpenOptions};
 
 use csv::{self, StringRecord};
 use argparse::{ArgumentParser, StoreTrue, Store};
@@ -104,6 +104,8 @@ fn scrape_vals(record: StringRecord, args: &RwLock<Arc<Arguments>>) {
     for entry in regfile.records() {
         // Preprocess query into searchable text
         let query: String= GDS::scraper::preprocess(record.get(1).unwrap().to_string(), entry.as_ref().unwrap().get(0).unwrap().to_string());
+        let readable = query.replace("+", " ");
+        println!("Query: {}\n", readable);
         println!("Query: {}\n", query);
         // Make request to google
         let html: String = GDS::scraper::get(query);
@@ -115,15 +117,21 @@ fn scrape_vals(record: StringRecord, args: &RwLock<Arc<Arguments>>) {
             // If unavailable enter crawler routine
             match GDS::scraper::crawler(html, entry.unwrap().get(1).unwrap().to_string()) {
                 Ok(val) => {
-
+                    output.push(val);
                 },
                 Err(val) => {
-
+                    output.push("None".to_string());
                 }
             };
         }
     }
     // Output to output csv file
-    let mut outfile: csv::Writer<std::fs::File> = csv::Writer::from_path(args.write().unwrap().out.clone()).expect("Unable to write to out file.");
+    let mut file = OpenOptions::new()
+    .write(true)
+    .create(true)
+    .append(true)
+    .open(args.write().unwrap().out.clone())
+    .unwrap();
+    let mut outfile: csv::Writer<std::fs::File> = csv::Writer::from_writer(file);
     outfile.write_record(output).unwrap();
 }
