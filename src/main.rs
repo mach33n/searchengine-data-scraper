@@ -106,7 +106,7 @@ fn scrape_vals(record: StringRecord, args: &RwLock<Arc<Arguments>>) {
         let query: String= GDS::scraper::preprocess(record.get(1).unwrap().to_string(), entry.as_ref().unwrap().get(0).unwrap().to_string());
         let readable = query.replace("+", " ");
         println!("Query: {}\n", readable);
-        println!("Query: {}\n", query);
+        //println!("Query: {}\n", query);
         // Make request to google
         let html: String = GDS::scraper::get(query);
         // Scan html for featured snippet

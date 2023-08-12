@@ -1,0 +1,5 @@
+features, regex
+color, String
+calories, Numeric_only
+Fiber, Numeric
+temperature, Range

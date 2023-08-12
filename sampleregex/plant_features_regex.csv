@@ -1,6 +1,6 @@
 features, regex
-npk,_
-optimal+temperature,_
-optimal+humidity,_
-optimal+lighting,_
-optimal+moisture,_
+npk, \d+-\d+-\d+
+optimal+temperature, Numeric
+optimal+humidity, Numeric_only
+optimal+lighting, Numeric
+optimal+moisture, Range

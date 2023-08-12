@@ -1,11 +1,43 @@
+mod regexbank;
 pub mod scraper {
     use std::net::{TcpStream};
     use std::io::{Read, Write};
     use html_parser::{Dom, Node};
     use native_tls::TlsConnector;
+
     struct SnippetText {
         original_text: String,
         bold_text: String
+    }
+
+    struct Parser<'a>{
+        curr: &'a Node,
+        idx: usize,
+        stack: Vec<(&'a Node, usize)>
+    }
+
+    impl Iterator for Parser<'_> {
+        type Item = Node;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            loop {
+                // Base Case: Element containing specified class is the lowest level element still containing all of featured 
+                // snippet information.
+                if self.curr.element().is_some() && self.curr.element().unwrap().classes.eq(&vec!["Gx5Zad", "fP1Qef", "xpd", "EtOod", "pkphOe"]) {
+                    return Some(self.curr.clone());
+                } else if self.curr.element().is_some() && self.curr.element().unwrap().children.len() >self.idx {
+                   // Checks if element has chidren and iterates into children 
+                   self.stack.push((&self.curr, self.idx + 1));
+                   self.curr = self.curr.element().unwrap().children.get(self.idx).unwrap();
+                   self.idx = 0;
+                } else {
+                    if self.stack.len() <= 0 {
+                        return None;
+                    }
+                    (self.curr, self.idx) = self.stack.pop().unwrap();
+                }
+            }
+        }
     }
 
     pub fn preprocess(id: String, entry: String) -> String {
@@ -50,9 +82,14 @@ pub mod scraper {
     pub fn crawler(html: String, regex: String) -> Result<String, String> {
         let html = html.split_once("Accept-Encoding\r\n\r\n").expect("Unable to split HTML on Accept-Encoding").1;
         let dom = Dom::parse(html).expect("Unable to parse html");
+        let mut parser = Parser {
+            curr: dom.children.get(0).expect("Empty html document, check value submitted."),
+            idx: 0,
+            stack: vec![]
+        };
         // Loop through snippets for first matching regex
-        let snippets = extract_snippet_blocks(dom.clone()).unwrap();
-        let out = extract_text(snippets.first().unwrap().clone(), regex, true).unwrap();
+        let snippets = parser.next();
+        let out = extract_text(snippets.unwrap().clone(), regex, true).unwrap();
         println!("Original Response: {}\n", out.original_text);
         println!("Bold Text: {}\n", out.bold_text);
         return Ok(out.bold_text);
