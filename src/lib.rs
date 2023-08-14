@@ -1,9 +1,11 @@
-mod regexbank;
+pub mod regexbank;
+pub mod threadlib;
 pub mod scraper {
     use std::net::{TcpStream};
     use std::io::{Read, Write};
     use html_parser::{Dom, Node};
     use native_tls::TlsConnector;
+    use crate::regexbank::regexlib::RegBank;
 
     struct SnippetText {
         original_text: String,
@@ -57,7 +59,7 @@ pub mod scraper {
         String::from_utf8_lossy(&res).to_string()
     } 
 
-    pub fn scrape_featured(html: String, regex: String) -> Result<String, String> {
+    pub fn scrape_featured(html: String, regex: RegBank) -> Result<String, String> {
         // Check for featured snippet text
         if !html.contains("About Featured Snippets") {
             // If not present return err
@@ -79,7 +81,7 @@ pub mod scraper {
         }
     }
 
-    pub fn crawler(html: String, regex: String) -> Result<String, String> {
+    pub fn crawler(html: String, regex: RegBank) -> Result<String, String> {
         let html = html.split_once("Accept-Encoding\r\n\r\n").expect("Unable to split HTML on Accept-Encoding").1;
         let dom = Dom::parse(html).expect("Unable to parse html");
         let mut parser = Parser {
@@ -148,7 +150,7 @@ pub mod scraper {
     }
 
     // Essentially runs DFS on a given center node and returns the concat text.
-    fn extract_text(page: Node, regex: String, seperate_bold: bool) -> Option<SnippetText> {
+    fn extract_text(page: Node, regex: RegBank, seperate_bold: bool) -> Option<SnippetText> {
         let mut idx: usize = 0;
         let mut stack: Vec<(&Node, usize)> = vec![];
         let mut temp: &Node = &page.clone();
@@ -173,6 +175,12 @@ pub mod scraper {
         }
         if ret.len() <= 0 {
             return None
+        }
+        if bold_text.len() <= 0 {
+            match regex.reg.find(ret.join("\n").as_str()) {
+                Some(val) => bold_text.push(val.as_str().to_string()),
+                None => {}
+            }
         }
         return Some(SnippetText { original_text: ret.join("\n"), bold_text: bold_text.join(" ")});
     }

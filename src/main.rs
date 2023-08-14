@@ -1,12 +1,15 @@
 #![feature(once_cell)]
 extern crate argparse;
-
-use std::{sync::{Arc, RwLock, OnceLock}, fs::OpenOptions};
-
-use csv::{self, StringRecord};
 use argparse::{ArgumentParser, StoreTrue, Store};
 
-mod threadlib;
+use std::{sync::{Arc, RwLock, OnceLock}, fs::OpenOptions};
+use std::str::FromStr;
+
+use csv::{self, StringRecord};
+
+use GDS::regexbank::regexlib::{RegexType, RegBank};
+use GDS::scraper;
+use GDS::threadlib;
 
 struct Arguments {
     names: String,
@@ -51,9 +54,9 @@ fn main() {
 
     // TODO: Remove before pushing to github
     if options.debug && args.names.is_empty() {
-        args.names = String::from("./sampleinputs/plant_names.csv");
-        args.reg = String::from("./sampleregex/plant_features_regex.csv");
-        args.out = String::from("crop_rec.csv");
+        args.names = String::from("./sampleinputs/fruits.csv");
+        args.reg = String::from("./sampleregex/fruit_regex.csv");
+        args.out = String::from("fruit.csv");
     }
     
     if options.verbose {
@@ -82,10 +85,10 @@ fn main() {
     let regfile: csv::Reader<std::fs::File> = csv::Reader::from_path(args.reg.clone()).expect("CSV is empty or null, please check file named.");
     let out: csv::Writer<std::fs::File> = csv::Writer::from_path(args.out.clone()).expect("Unable to instantiate csv writer.");
     let out: Arc<RwLock<csv::Writer<std::fs::File>>> = Arc::new(RwLock::new(out));
-    let features: Vec<String> = regfile.into_records().map(|x| x.unwrap().get(0).unwrap().to_string()).collect::<Vec<_>>().clone();
+    let mut features: Vec<String> = regfile.into_records().map(|x| x.as_ref().unwrap().get(0).unwrap().to_string()).collect::<Vec<_>>().clone();
 
     //TODO: Integrate citation option
-    //features.push("references".to_string());
+    features.insert(0, "ID".to_string());
     out.write().unwrap().write_record(features).expect("Unable to write to output.");
     out.write().unwrap().flush().unwrap();
 
@@ -100,22 +103,23 @@ fn main() {
 
 fn scrape_vals(record: StringRecord, args: &RwLock<Arc<Arguments>>) {
     let mut regfile: csv::Reader<std::fs::File> = csv::Reader::from_path(args.read().unwrap().reg.clone()).expect("CSV is empty or null, please check file named.");
-    let mut output: Vec<String> = vec![];
-    for entry in regfile.records() {
+    let features: Vec<(String, RegBank)> = regfile.into_records().map(|x| (x.as_ref().unwrap().get(0).unwrap().to_string(), RegBank::new(RegexType::from_str(x.unwrap().get(1).unwrap()).unwrap()))).collect::<Vec<_>>().clone();
+    let mut output: Vec<String> = vec![record.get(1).unwrap().to_string()];
+    for entry in features {
         // Preprocess query into searchable text
-        let query: String= GDS::scraper::preprocess(record.get(1).unwrap().to_string(), entry.as_ref().unwrap().get(0).unwrap().to_string());
+        let query: String= scraper::preprocess(record.get(1).unwrap().to_string(), entry.0);
         let readable = query.replace("+", " ");
         println!("Query: {}\n", readable);
         //println!("Query: {}\n", query);
         // Make request to google
-        let html: String = GDS::scraper::get(query);
+        let html: String = scraper::get(query);
         // Scan html for featured snippet
-        if let Ok(val) = GDS::scraper::scrape_featured(html.clone(), entry.as_ref().unwrap().get(1).unwrap().to_string()) {
+        if let Ok(val) = scraper::scrape_featured(html.clone(), entry.1.clone()) {
             // If available pull data from featured snippet
             output.push(val);
         } else {
             // If unavailable enter crawler routine
-            match GDS::scraper::crawler(html, entry.unwrap().get(1).unwrap().to_string()) {
+            match GDS::scraper::crawler(html, entry.1) {
                 Ok(val) => {
                     output.push(val);
                 },
