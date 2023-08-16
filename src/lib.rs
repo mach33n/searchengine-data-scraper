@@ -7,11 +7,13 @@ pub mod scraper {
     use native_tls::TlsConnector;
     use crate::regexbank::regexlib::RegBank;
 
-    struct SnippetText {
-        original_text: String,
-        bold_text: String
+    pub struct SnippetText {
+        pub original_text: String,
+        pub bold_text: String,
+        pub citation: String
     }
 
+    #[derive(Clone)]
     struct Parser<'a>{
         curr: &'a Node,
         idx: usize,
@@ -26,7 +28,9 @@ pub mod scraper {
                 // Base Case: Element containing specified class is the lowest level element still containing all of featured 
                 // snippet information.
                 if self.curr.element().is_some() && self.curr.element().unwrap().classes.eq(&vec!["Gx5Zad", "fP1Qef", "xpd", "EtOod", "pkphOe"]) {
-                    return Some(self.curr.clone());
+                    let temp = self.curr.clone();
+                    (self.curr, self.idx) = self.stack.pop().unwrap();
+                    return Some(temp);
                 } else if self.curr.element().is_some() && self.curr.element().unwrap().children.len() >self.idx {
                    // Checks if element has chidren and iterates into children 
                    self.stack.push((&self.curr, self.idx + 1));
@@ -59,7 +63,7 @@ pub mod scraper {
         String::from_utf8_lossy(&res).to_string()
     } 
 
-    pub fn scrape_featured(html: String, regex: RegBank) -> Result<String, String> {
+    pub fn scrape_featured(html: String, regex: RegBank, include_citation: bool) -> Result<SnippetText, String> {
         // Check for featured snippet text
         if !html.contains("About Featured Snippets") {
             // If not present return err
@@ -74,14 +78,13 @@ pub mod scraper {
             let text = extract_text(featured, regex, true).unwrap();
             println!("Original Response: {}\n", text.original_text);
             println!("Bold Text: {}\n", text.bold_text);
-            if text.bold_text.len() > 0 {
-                return Ok(text.bold_text);
-            }
-            return Ok(text.original_text);
+            println!("Citation link: {}\n", text.citation);
+            return Ok(text);
         }
     }
 
-    pub fn crawler(html: String, regex: RegBank) -> Result<String, String> {
+    // TODO: Add webpage crawling to increase odds of extracting answers.
+    pub fn crawler(html: String, regex: RegBank, include_citation: bool) -> Result<SnippetText, String> {
         let html = html.split_once("Accept-Encoding\r\n\r\n").expect("Unable to split HTML on Accept-Encoding").1;
         let dom = Dom::parse(html).expect("Unable to parse html");
         let mut parser = Parser {
@@ -90,11 +93,15 @@ pub mod scraper {
             stack: vec![]
         };
         // Loop through snippets for first matching regex
-        let snippets = parser.next();
-        let out = extract_text(snippets.unwrap().clone(), regex, true).unwrap();
-        println!("Original Response: {}\n", out.original_text);
-        println!("Bold Text: {}\n", out.bold_text);
-        return Ok(out.bold_text);
+        let mut out = SnippetText {original_text: "".to_string(), bold_text: "".to_string(), citation: "".to_string() };
+        while parser.clone().peekable().peek().is_some() && out.bold_text == "" {
+            let snippets = parser.next();
+            out = extract_text(snippets.unwrap().clone(), regex.clone(), true).unwrap();
+            println!("Original Response: {}\n", out.original_text);
+            println!("Bold Text: {}\n", out.bold_text);
+            println!("Citation link: {}\n", out.citation);
+        }
+        return Ok(out);
     }
 
     fn extract_snippet_blocks(page: Dom) -> Result<Vec<Node>, String> {
@@ -156,6 +163,7 @@ pub mod scraper {
         let mut temp: &Node = &page.clone();
         let mut ret: Vec<String> = vec![];
         let mut bold_text: Vec<String> = vec![];
+        let mut citation: Vec<String> = vec![];
         loop {
             if temp.element().is_some() && temp.element().unwrap().children.len() > idx {
                 stack.push((&temp, idx + 1));
@@ -170,6 +178,8 @@ pub mod scraper {
                 (temp, idx) = stack.pop().unwrap();
                 if temp.element().unwrap().classes.eq(&vec!["FCUp0c", "rQMQod"]) {
                     bold_text.push(ret.last().clone().unwrap().to_string());
+                } else if temp.element().unwrap().name.eq("a") && ret.len() > 0 && citation.len() <= 0{
+                    citation.push(temp.element().unwrap().attributes.get("href").unwrap().clone().unwrap());
                 }
             }
         }
@@ -182,6 +192,6 @@ pub mod scraper {
                 None => {}
             }
         }
-        return Some(SnippetText { original_text: ret.join("\n"), bold_text: bold_text.join(" ")});
+        return Some(SnippetText { original_text: ret.join("\n"), bold_text: bold_text.join(" "), citation: citation.join(" ")});
     }
 }

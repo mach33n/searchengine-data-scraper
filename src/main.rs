@@ -1,4 +1,3 @@
-#![feature(once_cell)]
 extern crate argparse;
 use argparse::{ArgumentParser, StoreTrue, Store};
 
@@ -19,13 +18,14 @@ struct Arguments {
 
 struct Options {
     verbose: bool,
-    debug: bool
+    debug: bool,
+    citation: bool
 }
 
 fn main() {
     // Argument Parsing 
     let mut args:Arguments = Arguments {names: "".to_string(), reg: "".to_string(), out: "".to_string()};
-    let mut options: Options = Options {verbose: false, debug: false};
+    let mut options: Options = Options {verbose: false, debug: false, citation: false};
     let mut temp: String = Default::default();
     {
         let mut argparse = ArgumentParser::new();
@@ -34,6 +34,8 @@ fn main() {
             .add_option(&["-v", "--verbose"], StoreTrue, "Include helpful outputs for interpretive processing.");
         argparse.refer(&mut options.debug)
             .add_option(&["-d", "--debug"], StoreTrue, "Include helpful outputs for interpretive processing.");
+        argparse.refer(&mut options.citation)
+            .add_option(&["-c", "--citation"], StoreTrue, "Include sources next to data points in table.");
         argparse.refer(&mut temp)
             .add_argument("blank", Store, "");
         argparse.refer(&mut args.names)
@@ -66,7 +68,7 @@ fn main() {
     }
 
     let args: Arc<Arguments> = Arc::new(Arguments {names: args.names, reg: args.reg, out: args.out});
-
+    let options: Arc<Options> = Arc::new(Options {verbose: options.verbose, debug: options.debug, citation: options.citation});
     // Validate File structures
     {
         let dup_inp: csv::StringRecordsIntoIter<std::fs::File> = csv::Reader::from_path(args.names.clone()).expect("CSV is empty or null, please check file named.").into_records();
@@ -88,6 +90,11 @@ fn main() {
     let mut features: Vec<String> = regfile.into_records().map(|x| x.as_ref().unwrap().get(0).unwrap().to_string()).collect::<Vec<_>>().clone();
 
     //TODO: Integrate citation option
+    if options.citation {
+        for entry in 0..features.len() {
+            features.insert(entry*2 + 1, "citation".to_string());
+        }    
+    }
     features.insert(0, "ID".to_string());
     out.write().unwrap().write_record(features).expect("Unable to write to output.");
     out.write().unwrap().flush().unwrap();
@@ -98,30 +105,40 @@ fn main() {
     CELL.get_or_init(|| {
         RwLock::new(args)
     });
-    inp.records().for_each(|x| pool.execute(|| scrape_vals(x.unwrap(), CELL.get().unwrap())));
+    static CELL2: OnceLock<RwLock<Arc<Options>>> = OnceLock::new();
+    CELL2.get_or_init(|| {
+        RwLock::new(options)
+    });
+    inp.records().for_each(|x| pool.execute(|| scrape_vals(x.unwrap(), CELL.get().unwrap(), CELL2.get().unwrap())));
 }
 
-fn scrape_vals(record: StringRecord, args: &RwLock<Arc<Arguments>>) {
+fn scrape_vals(record: StringRecord, args: &RwLock<Arc<Arguments>>, options: &RwLock<Arc<Options>>) {
     let mut regfile: csv::Reader<std::fs::File> = csv::Reader::from_path(args.read().unwrap().reg.clone()).expect("CSV is empty or null, please check file named.");
     let features: Vec<(String, RegBank)> = regfile.into_records().map(|x| (x.as_ref().unwrap().get(0).unwrap().to_string(), RegBank::new(RegexType::from_str(x.unwrap().get(1).unwrap()).unwrap()))).collect::<Vec<_>>().clone();
     let mut output: Vec<String> = vec![record.get(1).unwrap().to_string()];
     for entry in features {
         // Preprocess query into searchable text
-        let query: String= scraper::preprocess(record.get(1).unwrap().to_string(), entry.0);
+        let query: String = scraper::preprocess(record.get(1).unwrap().to_string(), entry.0.clone());
         let readable = query.replace("+", " ");
         println!("Query: {}\n", readable);
         //println!("Query: {}\n", query);
         // Make request to google
         let html: String = scraper::get(query);
         // Scan html for featured snippet
-        if let Ok(val) = scraper::scrape_featured(html.clone(), entry.1.clone()) {
+        if let Ok(val) = scraper::scrape_featured(html.clone(), entry.1.clone(), options.read().unwrap().citation.clone()) {
             // If available pull data from featured snippet
-            output.push(val);
+            output.push(val.bold_text);
+            if options.read().unwrap().citation.clone() {
+                output.push(val.citation);
+            }
         } else {
             // If unavailable enter crawler routine
-            match GDS::scraper::crawler(html, entry.1) {
+            match GDS::scraper::crawler(html, entry.1.clone(), options.read().unwrap().citation.clone()) {
                 Ok(val) => {
-                    output.push(val);
+                    output.push(val.bold_text);
+                    if options.read().unwrap().citation.clone() {
+                        output.push(val.citation);
+                    }
                 },
                 Err(val) => {
                     output.push("None".to_string());
