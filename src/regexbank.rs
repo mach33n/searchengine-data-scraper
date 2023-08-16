@@ -38,7 +38,7 @@ pub mod regexlib {
                 RegexType::Numeric => r"\d+\S*",
                 RegexType::NumericOnly => r"\d+",
                 RegexType::Stringy => r"\w+",
-                RegexType::Rangey => r"",
+                RegexType::Rangey => r"\S+",
                 RegexType::Custom(ref val) => val.as_str(),
             };
             RegBank {

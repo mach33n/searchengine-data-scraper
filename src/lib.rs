@@ -173,11 +173,13 @@ pub mod scraper {
                 if stack.len() <= 0 {
                     break;
                 } else if temp.text().is_some() {
-                    ret.push(temp.text().unwrap().to_string());
+                    let thing = html_escape::decode_html_entities(temp.text().unwrap());
+                    ret.push(thing.to_string());
                 }
                 (temp, idx) = stack.pop().unwrap();
                 if temp.element().unwrap().classes.eq(&vec!["FCUp0c", "rQMQod"]) {
-                    bold_text.push(ret.last().clone().unwrap().to_string());
+                    let thing = html_escape::decode_html_entities(ret.last().clone().unwrap());
+                    bold_text.push(thing.to_string());
                 } else if temp.element().unwrap().name.eq("a") && ret.len() > 0 && citation.len() <= 0{
                     citation.push(temp.element().unwrap().attributes.get("href").unwrap().clone().unwrap());
                 }
@@ -187,7 +189,8 @@ pub mod scraper {
             return None
         }
         if bold_text.len() <= 0 {
-            match regex.reg.find(ret.join("\n").as_str()) {
+            let out = regex.reg.find("from 80 to 90");
+            match regex.reg.find(ret.join("").as_str()) {
                 Some(val) => bold_text.push(val.as_str().to_string()),
                 None => {}
             }

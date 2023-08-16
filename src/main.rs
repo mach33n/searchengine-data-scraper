@@ -1,8 +1,9 @@
 extern crate argparse;
 use argparse::{ArgumentParser, StoreTrue, Store};
 
-use std::{sync::{Arc, RwLock, OnceLock}, fs::OpenOptions};
+use std::{sync::{Arc, RwLock, OnceLock, Mutex}, fs::OpenOptions};
 use std::str::FromStr;
+use once_cell::sync::Lazy;
 
 use csv::{self, StringRecord};
 
@@ -21,7 +22,6 @@ struct Options {
     debug: bool,
     citation: bool
 }
-
 fn main() {
     // Argument Parsing 
     let mut args:Arguments = Arguments {names: "".to_string(), reg: "".to_string(), out: "".to_string()};
@@ -103,16 +103,17 @@ fn main() {
     static CELL: OnceLock<RwLock<Arc<Arguments>>> = OnceLock::new();
     let mut inp: csv::Reader<std::fs::File> = csv::Reader::from_path(args.names.clone()).expect("CSV is empty or null, please check file named.");
     CELL.get_or_init(|| {
-        RwLock::new(args)
+        RwLock::new(args.clone())
     });
     static CELL2: OnceLock<RwLock<Arc<Options>>> = OnceLock::new();
     CELL2.get_or_init(|| {
         RwLock::new(options)
     });
-    inp.records().for_each(|x| pool.execute(|| scrape_vals(x.unwrap(), CELL.get().unwrap(), CELL2.get().unwrap())));
+    static count: Lazy<Arc<Mutex<usize>>> = Lazy::new(|| Arc::new(Mutex::new(0)));
+    inp.records().for_each(|x| pool.execute(|| scrape_vals(x.unwrap(), CELL.get().unwrap(), CELL2.get().unwrap(), count.clone())));
 }
 
-fn scrape_vals(record: StringRecord, args: &RwLock<Arc<Arguments>>, options: &RwLock<Arc<Options>>) {
+fn scrape_vals(record: StringRecord, args: &RwLock<Arc<Arguments>>, options: &RwLock<Arc<Options>>, count: Arc<Mutex<usize>>) {
     let mut regfile: csv::Reader<std::fs::File> = csv::Reader::from_path(args.read().unwrap().reg.clone()).expect("CSV is empty or null, please check file named.");
     let features: Vec<(String, RegBank)> = regfile.into_records().map(|x| (x.as_ref().unwrap().get(0).unwrap().to_string(), RegBank::new(RegexType::from_str(x.unwrap().get(1).unwrap()).unwrap()))).collect::<Vec<_>>().clone();
     let mut output: Vec<String> = vec![record.get(1).unwrap().to_string()];
@@ -154,5 +155,16 @@ fn scrape_vals(record: StringRecord, args: &RwLock<Arc<Arguments>>, options: &Rw
     .open(args.write().unwrap().out.clone())
     .unwrap();
     let mut outfile: csv::Writer<std::fs::File> = csv::Writer::from_writer(file);
-    outfile.write_record(output).unwrap();
+    outfile.write_record(output.clone()).unwrap();
+
+    let mut inp: csv::Reader<std::fs::File> = csv::Reader::from_path(args.read().unwrap().names.clone()).expect("CSV is empty or null, please check file named.");
+    let mut regfile: csv::Reader<std::fs::File> = csv::Reader::from_path(args.read().unwrap().reg.clone()).expect("CSV is empty or null, please check file named.");
+    let mut count = count.lock().unwrap();
+    if options.read().unwrap().citation {
+        *count += (output.len() - 1)/2 - output.iter().skip(1).step_by(2).filter(|x| x.len()<= 0).count();
+    } else {
+        *count += (output.len() - 1) - output.iter().filter(|x| x.len()<= 0).count();
+    }
+    println!("Entries covered: {}", count);
+    println!("Entries total: {}", inp.records().count() * regfile.records().count());
 }
